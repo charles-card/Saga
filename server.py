@@ -1,17 +1,20 @@
-import socket
+#!/usr/bin/env python3
+from CommunicationProtocols import CommunicationProtocol
+from tinyec import registry
+import secrets
 
-s = socket.socket()
-host = '127.0.0.1'
-port = 12009
+HOST = '192.168.1.30'
+PORT = 12009
 
-s.bind((host, port))
 
-s.listen(10)
+if __name__ == '__main__':
+    curve = registry.get_curve('brainpoolP256r1')
 
-while True:
-    c, addr = s.accept()
-    print('Connection established {0}'.format(addr))
-    content = c.recv(1024).decode()
-    if not content:
-        break
-    print(content)
+    private_key = secrets.randbelow(curve.field.n)
+    public_key = private_key * curve.g
+
+    connection = CommunicationProtocol(private_key, public_key, HOST, PORT)
+
+    connection.wait_connection()
+    print(connection.receive_message())
+    connection.close_connection()

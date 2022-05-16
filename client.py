@@ -1,9 +1,19 @@
-import socket
+#!/usr/bin/env python3
+from CommunicationProtocols import CommunicationProtocol
+from tinyec import registry
+import secrets
 
-host = '192.168.1.30'
-port = 12009
+HOST = '192.168.1.30'
+PORT = 12009
 
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.connect((host, port))
-    s.sendall(b'Hello World!')
+if __name__ == '__main__':
+    curve = registry.get_curve('brainpoolP256r1')
 
+    private_key = secrets.randbelow(curve.field.n)
+    public_key = private_key * curve.g
+
+    connection = CommunicationProtocol(private_key, public_key, HOST, PORT)
+
+    connection.open_connection()
+    connection.send_message('Hello World!')
+    connection.close_connection()
