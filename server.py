@@ -3,7 +3,7 @@ from CommunicationProtocols import CommunicationProtocol
 from tinyec import registry
 import secrets
 
-HOST = '192.168.1.30'
+HOST = ''
 PORT = 12009
 
 
@@ -14,7 +14,8 @@ if __name__ == '__main__':
     public_key = private_key * curve.g
 
     connection = CommunicationProtocol(private_key, public_key, HOST, PORT)
-
     connection.wait_connection()
-    print(connection.receive_message())
-    connection.close_connection()
+
+    while connection.is_open():
+        for message in connection.receive_message():
+            print(message)

@@ -2,8 +2,9 @@
 from CommunicationProtocols import CommunicationProtocol
 from tinyec import registry
 import secrets
+import time
 
-HOST = '192.168.1.30'
+HOST = '192.168.1.95'
 PORT = 12009
 
 if __name__ == '__main__':
@@ -15,5 +16,6 @@ if __name__ == '__main__':
     connection = CommunicationProtocol(private_key, public_key, HOST, PORT)
 
     connection.open_connection()
-    connection.send_message('Hello World!')
+    for i in range(1, 100, 1):
+        connection.send_message('Hello World! {0}'.format(i))
     connection.close_connection()

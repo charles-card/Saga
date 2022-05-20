@@ -6,6 +6,7 @@ from Crypto import Random
 from Crypto.Cipher import AES
 from tinyec.ec import Point
 from tinyec import registry
+import struct
 
 
 class EncryptionProtocol(object):
@@ -65,6 +66,7 @@ class EncryptionProtocol(object):
 
 class CommunicationProtocol(object):
     def __init__(self, private_key, public_key, ip, port):
+        self.open = False
         self.my_private_key = private_key
         self.my_public_key = public_key
 
@@ -79,6 +81,8 @@ class CommunicationProtocol(object):
         self.their_nonce = None
 
         self.encryption_proto = None
+
+        self.buffer = b''
 
         self.log = ''
 
@@ -99,14 +103,16 @@ class CommunicationProtocol(object):
         self.log += response.decode()
 
     def send_ack(self):
-        self.send_message(self.log)
+        self.socket.send(self.encryption_proto.encode_message(self.log))
 
     def receive_ack(self):
-        response = self.receive_message()
+        response = self.socket.recv(1024)
+        response = self.encryption_proto.decode_message(response)
         return response
 
     def open_connection(self):
         self.socket.connect((self.host, self.port))
+        self.open = True
         self.send_hello()
         self.receive_hello()
         self.send_ack()
@@ -123,6 +129,7 @@ class CommunicationProtocol(object):
             self.receive_hello()
             if self.log != '':
                 break
+        self.open = True
         self.send_hello()
         their_log = self.receive_ack()
         self.send_ack()
@@ -131,12 +138,42 @@ class CommunicationProtocol(object):
             raise Exception('UnderAttack')
 
     def send_message(self, message):
-        self.socket.send(self.encryption_proto.encode_message(message))
+        message = self.encryption_proto.encode_message(message)
+        self.socket.send(message + b'\x00')
+
+    def buffer_split_received(self, received):
+        received = received.decode()
+        messages = []
+        x = 0  # Start of message
+        for i in range(0, len(received), 1):
+            if received[i] == '\x00':
+                messages.append(bytes(received[x:i], 'utf-8'))
+                x = i+1
+
+        if len(messages) > 0:
+            messages[0] = self.buffer + messages[0]
+            self.buffer = b''
+
+        self.buffer = self.buffer + bytes(received[x:], 'utf-8')
+
+        return messages
 
     def receive_message(self):
         response = self.socket.recv(1024)
-        message = self.encryption_proto.decode_message(response)
-        return message
+        if len(response) == 0:
+            self.open = False
+            return ['END']
+        responses = self.buffer_split_received(response)
+        messages = []
+        if responses:
+            for response in responses:
+                messages.append(self.encryption_proto.decode_message(response))
+        return messages
 
     def close_connection(self):
         self.socket.close()
+        self.open = False
+
+    def is_open(self):
+        return self.open
+
