@@ -280,7 +280,14 @@ class CommunicationProtocol(object):
 
             if responses:
                 for response in responses:
-                    messages.append(self.encryption_proto.decode_message(response))
+                    if response == b'END':
+                        self.connection.close()
+                        self.open = False
+                        return messages.append('END')
+                    else:
+                        message = self.encryption_proto.decode_message(response)
+                        messages.append(message)
+
             return messages
 
         except ConnectionError:
@@ -293,22 +300,6 @@ class CommunicationProtocol(object):
         """
         self.connection.close()
         self.open = False
-
-    def is_open(self):
-        """
-        Checks if the connection to the peer is still open.
-
-        :return: True if connection is open; False otherwise.
-        """
-        return self.open  # return True if connection is open, False otherwise.
-
-    def get_eom(self):
-        """
-        Gets the End-Of-Message character
-
-        :return: End-Of-Message character
-        """
-        return self.eom  # return End-of-Message character
 
     def establish_encrypted_connection_ss(self):
         """
@@ -343,6 +334,14 @@ class CommunicationProtocol(object):
         """
         return self.peer_name
 
+    def get_my_name(self):
+        """
+        Gets name of this instance.
+
+        :return: Name of this instance.
+        """
+        return self.my_name
+
     def get_address(self):
         """
         Gets address of peer
@@ -350,3 +349,19 @@ class CommunicationProtocol(object):
         :return: Name of peer.
         """
         return self.address
+
+    def get_eom(self):
+        """
+        Gets the End-Of-Message character
+
+        :return: End-Of-Message character
+        """
+        return self.eom
+
+    def is_open(self):
+        """
+        Checks if the connection to the peer is still open.
+
+        :return: True if connection is open; False otherwise.
+        """
+        return self.open  # return True if connection is open, False otherwise.

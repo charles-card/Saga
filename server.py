@@ -2,7 +2,7 @@
 import sys
 from CommunicationProtocols import CommunicationProtocol
 import socket
-import multiprocessing
+import threading
 
 
 class Server(object):
@@ -21,6 +21,7 @@ class Server(object):
 
         # self.states = ['Waiting for Hello', 'Waiting for ACK', 'Waiting for Message']
         self.processes = []
+        self.connections = []
         self.running = False
 
     def start(self):
@@ -38,20 +39,24 @@ class Server(object):
 
         while self.running:
             client, addr = self.socket.accept()
-            process = multiprocessing.Process(target=self.client_connection, args=(client, addr, ))
-            self.processes.append(process)
-            process.start()
+            thread = threading.Thread(target=self.client_connection, args=(client, addr, ))
+            thread.daemon = True
+            self.connections.append(client)
+            thread.start()
 
     def stop(self):
         """
         Stops the main loop.
         """
         self.running = False
-        for process in multiprocessing.active_children():
-            process.terminate()
-        self.socket.shutdown(socket.SHUT_RDWR)
+        for conn in self.connections:
+            try:
+                conn.send(bytes('END' + '\x00', 'utf-8'))
+                print('closed')
+            except BrokenPipeError:
+                pass
         self.socket.close()
-        print('Stopped.')
+        print('Stopped server.')
 
     def process_message(self, message: str, address: str, peer_name, _debug: bool = False) -> str:
         """
@@ -71,14 +76,6 @@ class Server(object):
 
         return reply
 
-    def close_connection(self):
-        """
-        Closes the socket receiving and sending packets.
-        """
-        self.socket.shutdown(socket.SHUT_RDWR)
-        self.socket.close()
-        print('Closed Socket')
-
     def client_connection(self, connection: socket.socket, addr):
         """
         Called when a new connection is made to the server, handles receiving data packets
@@ -92,7 +89,7 @@ class Server(object):
             messages = comm.receive_message()
             if messages[0] != 'END':
                 for message in messages:
-                    reply = self.process_message(message, comm.get_address(), comm.get_peer_name(), _debug=True)
+                    reply = self.process_message(message, comm.get_address(), comm.get_peer_name(), _debug=False)
                     comm.send_message(reply)
         print('Thread closing')
         sys.exit(0)
@@ -104,11 +101,11 @@ if __name__ == '__main__':
         server.start()
 
     except KeyboardInterrupt as interrupt:
+        print()
         server.stop()
-        #server.close_connection()
         sys.exit(interrupt)
 
     except OSError as exception:
+        print()
         server.stop()
-        #server.close_connection()
         sys.exit(exception)

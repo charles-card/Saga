@@ -27,20 +27,20 @@ class Client(object):
         Sends message to the server.
 
         :param msg: Message to be sent to the server.
-        :return: Reply received from the server.
         """
         self.comm.send_message(msg)
         reply = self.comm.receive_message()
-        self.process_response(reply)
-        return reply
+        if reply:
+            self.process_response(reply)
 
-    def process_response(self, message: str):
+    def process_response(self, messages: list):
         """
         TODO: Process responses from server
 
-        :param message: Message received in reply from server.
+        :param messages: Messages received in reply from server.
         """
-        pass
+        for message in messages:
+            print(message)
 
     def open_connection(self):
         """
@@ -67,10 +67,10 @@ class Client(object):
 
 
 if __name__ == '__main__':
-    client_name = input('What is the name of your client?: ')
+    client_name = 'chocy'
     client = Client(client_name)
     client.open_connection()
     while client.is_connected_to_server():
-        txt = input('Message for server: ')
-        reply = client.send_message(txt)
-        print('Response from Server: {0}'.format(reply[0]))
+        txt = '1234'
+        client.send_message(txt)
+    print('Connection Ended')
