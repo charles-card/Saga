@@ -1,12 +1,12 @@
 import random
-import socket
 import base64
 import hashlib
+
 from Crypto import Random
 from Crypto.Cipher import AES
 from tinyec.ec import Point
 from tinyec import registry
-import struct
+import secrets
 
 
 class EncryptionProtocol(object):
@@ -23,7 +23,8 @@ class EncryptionProtocol(object):
         cipher = AES.new(self.key, AES.MODE_CBC, iv)
         return base64.b64encode(iv + cipher.encrypt(raw.encode()))
 
-    def mac(self, raw, nonce):
+    @staticmethod
+    def mac(raw, nonce):
         n_msg = repr(nonce) + raw
         mac = base64.b64encode(hashlib.sha256(n_msg.encode()).digest())
         return mac
@@ -57,61 +58,141 @@ class EncryptionProtocol(object):
         else:
             raise Exception('Invalid Message.')
 
-    def _pad(self, s):
+    @staticmethod
+    def _pad(s):
         return s + (AES.block_size - len(s) % AES.block_size) * chr(AES.block_size - len(s) % AES.block_size)
 
-    def _unpad(self, s):
+    @staticmethod
+    def _unpad(s):
         return s[:-ord(s[len(s) - 1:])]
 
 
 class CommunicationProtocol(object):
-    def __init__(self, private_key, public_key, ip, port):
-        self.open = False
-        self.my_private_key = private_key
-        self.my_public_key = public_key
+    def __init__(self, connection, private_key=None, public_key=None, file_prefix='', eom='\x00'):
+        self.key_prefix = file_prefix
+        self.eom = eom  # End-of-Message character
+
+        self.connection = connection
+
+        if private_key is not None and public_key is not None:
+            self.my_private_key = private_key
+            self.my_public_key = public_key
+        elif private_key is None and public_key is None:
+            self.my_private_key, self.my_public_key = self.generate_keys()
+        else:
+            raise Exception('Must provide either both keys or no keys.')
 
         self.their_public_key = None
         self.master_key = None
-
-        self.socket = socket.socket()
-        self.host = ip
-        self.port = port
-
-        self.my_nonce = random.randrange(2 ** 29)
-        self.their_nonce = None
-
+        self.my_nonce = random.randrange(2 ** 29)  # Prevent replay attacks
+        self.open = True
         self.encryption_proto = None
-
         self.buffer = b''
-
         self.log = ''
 
+    @staticmethod
+    def generate_keys():
+        curve = registry.get_curve('brainpoolP256r1')
+        private_key = secrets.randbelow(curve.field.n)
+        public_key = private_key * curve.g
+
+        return private_key, public_key
+
+    @staticmethod
+    def generate_nonce():
+        return random.randrange(2 ** 29)
+
+    def store_local_keys(self):
+        pass
+
+    def store_peer_keys(self):
+        pass
+
     def send_hello(self):
-        message = repr(self.my_nonce) + ',' + repr(self.my_public_key.x) + ',' + repr(self.my_public_key.y)
-        self.socket.send(message.encode())
+        message = ','.join((repr(self.my_nonce), repr(self.my_public_key.x), repr(self.my_public_key.y)))
+        self.connection.send(message.encode())
         self.log += message
 
     def receive_hello(self):
-        response = self.socket.recv(1024)
+        response = self.connection.recv(1024)
         nonce, pub_x, pub_y = response.decode().split(',')
         self.their_public_key = Point(registry.get_curve('brainpoolP256r1'), int(pub_x), int(pub_y))
-        self.their_nonce = int(nonce)
+        their_nonce = int(nonce)
 
         self.master_key = self.my_private_key * self.their_public_key
-        self.encryption_proto = EncryptionProtocol(self.master_key, self.their_nonce, self.my_nonce)
+        self.encryption_proto = EncryptionProtocol(self.master_key, their_nonce, self.my_nonce)
 
         self.log += response.decode()
 
     def send_ack(self):
-        self.socket.send(self.encryption_proto.encode_message(self.log))
+        self.connection.send(self.encryption_proto.encode_message(self.log))
 
     def receive_ack(self):
-        response = self.socket.recv(1024)
+        response = self.connection.recv(1024)
         response = self.encryption_proto.decode_message(response)
         return response
 
-    def open_connection(self):
-        self.socket.connect((self.host, self.port))
+    def send_message(self, message):
+        message = self.encryption_proto.encode_message(message)
+        self.connection.send(message + bytes(self.eom, 'utf-8'))
+
+    def buffer_split_received(self, received):
+        received = received.decode('utf-8')  # Convert received ciphertext to utf-8
+        messages = []
+        x = 0  # Start of message position
+        for i in range(0, len(received), 1):
+            if received[i] == self.eom:
+                messages.append(bytes(received[x:i], 'utf-8'))
+                x = i+1
+
+        if len(messages) > 0:  # If an eom was received, complete the first message from buffer
+            messages[0] = self.buffer + messages[0]
+            self.buffer = b''
+
+        self.buffer = self.buffer + bytes(received[x:], 'utf-8')  # Update Buffer
+
+        return messages  # return List of messages received
+
+    def receive_message(self):
+        try:
+            byte_string = self.connection.recv(1024)
+
+            if len(byte_string) == 0:
+                self.open = False
+                return ['END']
+
+            responses = self.buffer_split_received(byte_string)
+            messages = []
+
+            if responses:
+                for response in responses:
+                    messages.append(self.encryption_proto.decode_message(response))
+            return messages
+
+        except ConnectionError:
+            self.open = False
+            return ['END']
+
+    def close_connection(self):
+        self.connection.close()
+        self.open = False
+
+    def is_open(self):
+        return self.open  # return True if connection is open, False otherwise.
+
+    def get_eom(self):
+        return self.eom  # return End-of-Message character
+
+    def establish_encrypted_connection_ss(self):
+        self.receive_hello()
+        self.send_hello()
+        their_log = self.receive_ack()
+        self.send_ack()
+
+        if their_log != self.log:
+            raise Exception('Under Attack')
+
+    def establish_encrypted_connection_cs(self):
         self.open = True
         self.send_hello()
         self.receive_hello()
@@ -120,60 +201,3 @@ class CommunicationProtocol(object):
 
         if their_log != self.log:
             raise Exception('UnderAttack')
-
-    def wait_connection(self):
-        self.socket.bind((self.host, self.port))
-        self.socket.listen(10)
-        while True:
-            self.socket, addr = self.socket.accept()
-            self.receive_hello()
-            if self.log != '':
-                break
-        self.open = True
-        self.send_hello()
-        their_log = self.receive_ack()
-        self.send_ack()
-
-        if their_log != self.log:
-            raise Exception('UnderAttack')
-
-    def send_message(self, message):
-        message = self.encryption_proto.encode_message(message)
-        self.socket.send(message + b'\x00')
-
-    def buffer_split_received(self, received):
-        received = received.decode()
-        messages = []
-        x = 0  # Start of message
-        for i in range(0, len(received), 1):
-            if received[i] == '\x00':
-                messages.append(bytes(received[x:i], 'utf-8'))
-                x = i+1
-
-        if len(messages) > 0:
-            messages[0] = self.buffer + messages[0]
-            self.buffer = b''
-
-        self.buffer = self.buffer + bytes(received[x:], 'utf-8')
-
-        return messages
-
-    def receive_message(self):
-        response = self.socket.recv(1024)
-        if len(response) == 0:
-            self.open = False
-            return ['END']
-        responses = self.buffer_split_received(response)
-        messages = []
-        if responses:
-            for response in responses:
-                messages.append(self.encryption_proto.decode_message(response))
-        return messages
-
-    def close_connection(self):
-        self.socket.close()
-        self.open = False
-
-    def is_open(self):
-        return self.open
-
