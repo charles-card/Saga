@@ -2,6 +2,7 @@
 import sys
 from CommunicationProtocols import CommunicationProtocol
 import socket
+import threading
 
 
 class Server(object):
@@ -14,6 +15,7 @@ class Server(object):
         self.socket = None
 
         # self.states = ['Waiting for Hello', 'Waiting for ACK', 'Waiting for Message']
+        self.client_threads = []
 
     def start(self):
         self.socket = socket.socket()
@@ -26,7 +28,9 @@ class Server(object):
 
         while True:
             client, addr = self.socket.accept()
-            self.client_connection(client)  # Thread this
+            print('Thread {0}'.format(str(len(threading.enumerate()))))
+            thread = threading.Thread(target=self.client_connection, args=(client,))
+            thread.start()
 
     def process_message(self, message):
         return 'blah'
@@ -44,6 +48,7 @@ class Server(object):
                 comm.send_message(reply)
                 print('Received: {0}'.format(message))
                 print('Response: {0}'.format(reply))
+        sys.exit(0)
 
 
 if __name__ == '__main__':

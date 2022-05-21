@@ -20,9 +20,11 @@ class Client(object):
         self.comm.send_message(msg)
         reply = self.comm.receive_message()
         self.process_response(reply)
+        return reply
 
     def process_response(self, message):
-        print(message)
+        pass
+        #  print(message)
 
     def open_connection(self):
         self.socket = socket.socket()
@@ -37,5 +39,7 @@ class Client(object):
 if __name__ == '__main__':
     client = Client()
     client.open_connection()
-    client.send_message('yeet')
-    client.close_connection()
+    while True:
+        txt = input('Message for server: ')
+        reply = client.send_message(txt)
+        print('Response from Server: {0}'.format(reply[0]))
