@@ -2,10 +2,11 @@
 from Peer import Peer
 import sys
 import time
+import argparse
 
 NAME = 'chocy2'
 HOST = ''
-IN_PORT = 12011
+PORT = 12011
 
 
 class Client(Peer):
@@ -50,7 +51,18 @@ class Client(Peer):
 
 
 if __name__ == '__main__':
-    client = Client(NAME, HOST, IN_PORT, _debug=True)
+    parser = argparse.ArgumentParser(description='This is Saga...')
+    parser.add_argument('-n', '--name', help='name of this peer', type=str)
+    parser.add_argument('--host', help='interface to listen to for incoming connections', type=str)
+    parser.add_argument('-p', '--port', help='the port to accept connections', type=int)
+    parser.add_argument('-d', '--debug', help='enables debug mode', action='store_true')
+    args = parser.parse_args()
+
+    name_ = args.name if args.name else NAME
+    host_ = args.host if args.host else HOST
+    port_ = args.port if args.port else PORT
+
+    client = Client(name_, host_, port_, _debug=args.debug)
     try:
         client.start()
 
