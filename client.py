@@ -15,10 +15,11 @@ class Client(Peer):
 
     def process_message(self, name: str, message: str, _debug: bool = False):
         """
+        Processes incoming messages to the Peer
 
-        :param _debug:
-        :param name:
+        :param name: Name of the peer the message originated from.
         :param message: Message received from peer.
+        :param _debug: If True prints debug information to the console; otherwise no debug information is printed.
         """
         super().process_message(name, message)
 
@@ -29,7 +30,10 @@ class Client(Peer):
         elif message == '789':
             self.send_message(name, 'qwerty3')
 
-    def start(self, _debug: bool = False):
+    def start(self):
+        """
+        Starts the mainloop for this Peer.
+        """
         super().start()
 
         ip, port = '192.168.1.95', 12009
