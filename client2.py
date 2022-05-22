@@ -3,9 +3,9 @@ from Peer import Peer
 import sys
 import time
 
-NAME = 'chocy1'
+NAME = 'chocy2'
 HOST = ''
-IN_PORT = 12010
+IN_PORT = 12011
 
 
 class Client(Peer):
@@ -23,21 +23,21 @@ class Client(Peer):
         super().process_message(name, message)
 
         if message == '123':
-            self.send_message(name, 'qwerty1')
+            self.send_message(name, 'abcdef1')
         elif message == '456':
-            self.send_message(name, 'qwerty2')
+            self.send_message(name, 'abcdef2')
         elif message == '789':
-            self.send_message(name, 'qwerty3')
+            self.send_message(name, 'abcdef3')
 
     def start(self, _debug: bool = False):
         super().start()
 
-        ip, port = '192.168.1.95', 12009
-        peer = 'server'
+        ip, port = '192.168.1.95', 12010
+        peer = 'chocy1'
         while self.running:
             time.sleep(1)
             if self.is_connected_to_peer(peer):
-                self.send_message(peer, '456')
+                self.send_message(peer, '789')
             else:
                 try:
                     self.open_connection(ip, port)

@@ -119,22 +119,26 @@ class EncryptionProtocol(object):
 
 
 class CommunicationProtocol(object):
-    def __init__(self, connection: socket.socket, address: str, name: str,
-                 private_key=None, public_key=None, file_prefix='', _eom='\x00'):
+    def __init__(self, connection: socket.socket, address: tuple, name: str,
+                 private_key=None, public_key=None, file_prefix='', _eom='\x00', _debug: bool = False):
         """
         Initialise CommunicationProtocol.
 
         :param connection: Socket object for the connection between two peers.
+        :param address: Tuple of (ip, port) to connect to
+        :param name: Name of this peer
         :param private_key: Private key of this client.
         :param public_key: Public key of this client.
         :param file_prefix: File prefix for saving and loading keys.
         :param _eom: End-Of-Message Character used to separate different messages from one another.
+        :param _debug: If True prints debug information to the console; otherwise no debug information is printed.
         """
         self.my_name = name
         self.peer_name = None
         self.key_prefix = file_prefix
         self.address = address
-        self.eom = _eom  # End-of-Message character
+        self._eom = _eom  # End-of-Message character
+        self._debug = _debug
 
         self.connection = connection
 
@@ -234,7 +238,7 @@ class CommunicationProtocol(object):
         :param message: Plaintext message to send to the peer
         """
         message = self.encryption_proto.encode_message(message)
-        self.connection.send(message + bytes(self.eom, 'utf-8'))
+        self.connection.send(message + bytes(self._eom, 'utf-8'))
 
     def buffer_split_received(self, received):
         """
@@ -250,7 +254,7 @@ class CommunicationProtocol(object):
         messages = []
         x = 0  # Start of message position
         for i in range(0, len(received), 1):
-            if received[i] == self.eom:
+            if received[i] == self._eom:
                 messages.append(bytes(received[x:i], 'utf-8'))
                 x = i+1
 
@@ -262,7 +266,7 @@ class CommunicationProtocol(object):
 
         return messages  # return List of messages received
 
-    def receive_message(self):
+    def receive_message(self) -> list:
         """
         Receive a message from the peer.
 
@@ -271,22 +275,17 @@ class CommunicationProtocol(object):
         try:
             byte_string = self.connection.recv(1024)
 
-            if len(byte_string) == 0:  # Received emptystring from peer, connection is terminated
-                self.open = False
-                return ['END']
+            if len(byte_string) == 0:  # Received emptystring from peer, connection was terminated unexpectedly
+                self.close_connection()  # Make sure sockets are closed
+                return []
 
             responses = self.buffer_split_received(byte_string)
             messages = []
 
             if responses:
                 for response in responses:
-                    if response == b'END':  # Peer terminating connection
-                        self.connection.close()
-                        self.open = False
-                        return messages.append('END')
-                    else:
-                        message = self.encryption_proto.decode_message(response)
-                        messages.append(message)
+                    message = self.encryption_proto.decode_message(response)
+                    messages.append(message)
 
             return messages
 
@@ -299,10 +298,14 @@ class CommunicationProtocol(object):
         Closes the connection to the peer.
         """
         if self.open:
-            self.connection.send(bytes('END' + self.eom, 'utf-8'))
+            try:
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             self.connection.close()
-            print('closed')
             self.open = False
+            if self._debug:
+                print('[TERMINATED] Connection {0}@{1}:{2}'.format(self.peer_name, self.address[0], self.address[1]))
 
     def establish_encrypted_connection_ss(self):
         """
@@ -315,6 +318,8 @@ class CommunicationProtocol(object):
         self.send_ack()
         if ack[0] != self.log:
             raise Exception('Under Attack')
+        if self._debug:
+            print('[ESTABLISHED] Connection FROM {0}@{1}:{2}'.format(self.peer_name, self.address[0], self.address[1]))
 
     def establish_encrypted_connection_cs(self):
         """
@@ -328,6 +333,8 @@ class CommunicationProtocol(object):
         self.peer_name = ack[1]
         if ack[0] != self.log:
             raise Exception('UnderAttack')
+        if self._debug:
+            print('[ESTABLISHED] Connection TO {0}@{1}:{2}'.format(self.peer_name, self.address[0], self.address[1]))
 
     def get_peer_name(self):
         """
@@ -359,7 +366,7 @@ class CommunicationProtocol(object):
 
         :return: End-Of-Message character
         """
-        return self.eom
+        return self._eom
 
     def is_open(self):
         """
