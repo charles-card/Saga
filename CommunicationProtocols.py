@@ -271,7 +271,7 @@ class CommunicationProtocol(object):
         try:
             byte_string = self.connection.recv(1024)
 
-            if len(byte_string) == 0:
+            if len(byte_string) == 0:  # Received emptystring from peer, connection is terminated
                 self.open = False
                 return ['END']
 
@@ -280,7 +280,7 @@ class CommunicationProtocol(object):
 
             if responses:
                 for response in responses:
-                    if response == b'END':
+                    if response == b'END':  # Peer terminating connection
                         self.connection.close()
                         self.open = False
                         return messages.append('END')
@@ -298,8 +298,11 @@ class CommunicationProtocol(object):
         """
         Closes the connection to the peer.
         """
-        self.connection.close()
-        self.open = False
+        if self.open:
+            self.connection.send(bytes('END' + self.eom, 'utf-8'))
+            self.connection.close()
+            print('closed')
+            self.open = False
 
     def establish_encrypted_connection_ss(self):
         """

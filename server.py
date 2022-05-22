@@ -39,22 +39,24 @@ class Server(object):
 
         while self.running:
             client, addr = self.socket.accept()
-            thread = threading.Thread(target=self.client_connection, args=(client, addr, ))
-            thread.daemon = True
-            self.connections.append(client)
-            thread.start()
+            try:
+                comm = CommunicationProtocol(client, addr, 'server', file_prefix='server-')
+                comm.establish_encrypted_connection_ss()
+                self.connections.append(comm)
+
+                thread = threading.Thread(target=self.client_connection, args=(comm, ))
+                thread.daemon = True
+                thread.start()
+            except Exception as e:
+                print(e)
 
     def stop(self):
         """
         Stops the main loop.
         """
+        for comm in self.connections:
+            comm.close_connection()
         self.running = False
-        for conn in self.connections:
-            try:
-                conn.send(bytes('END' + '\x00', 'utf-8'))
-                print('closed')
-            except BrokenPipeError:
-                pass
         self.socket.close()
         print('Stopped server.')
 
@@ -76,15 +78,12 @@ class Server(object):
 
         return reply
 
-    def client_connection(self, connection: socket.socket, addr):
+    def client_connection(self, comm: CommunicationProtocol):
         """
         Called when a new connection is made to the server, handles receiving data packets
 
-        :param connection: socket object representing the connection to the client
-        :param addr: iPv4 address of incoming connection
+        :param comm: socket object representing the connection to the client
         """
-        comm = CommunicationProtocol(connection, addr, 'server', file_prefix='server-')
-        comm.establish_encrypted_connection_ss()
         while comm.is_open() & self.running:
             messages = comm.receive_message()
             if messages[0] != 'END':
