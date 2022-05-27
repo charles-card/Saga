@@ -375,3 +375,13 @@ class CommunicationProtocol(object):
         :return: True if connection is open; False otherwise.
         """
         return self.open  # return True if connection is open, False otherwise.
+
+    def __eq__(self, other):
+        result = False
+        if type(other) is tuple:
+            if other[0] == self.address[0] and other[1] == self.address[1]:
+                result = True
+        elif type(other) is CommunicationProtocol:
+            if other.get_address()[0] == self.address[0] and other.get_address()[1] == self.address[1]:
+                result = True
+        return result

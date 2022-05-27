@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-from Peer import Client, MicrophoneDecorator, MonitorDecorator
+from Peer import Client
+from Modules import TimeModule, MicrophoneModule, MonitorModule
 import sys
 import time
 import argparse
@@ -7,41 +8,6 @@ import argparse
 NAME = 'server'
 HOST = ''
 PORT = 12109
-
-
-class Server(Client):
-
-    def __init__(self, name: str, host: str, port: int, _debug: bool = False):
-        super().__init__(name, host, port, _debug=_debug)
-
-    def process_message(self, name: str, message: str, handled: bool):
-        """
-        Processes incoming messages to the Peer
-
-        :param name: Name of the peer the message originated from.
-        :param message: Message received from peer.
-        :param handled: If True message was handled; False otherwise.
-        """
-        super().process_message(name, message, handled)
-
-    def start(self, message_handler):
-        """
-        Starts the mainloop for this Peer.
-        """
-        if not message_handler:
-            message_handler = self.process_message
-        super().start(message_handler)
-        ip, port = '192.168.1.95', 12111
-        peer = 'chocy2'
-        while self.running:
-            time.sleep(1)
-            if self.is_connected_to_peer(peer):
-                self.send_message(peer, '123')
-            else:
-                try:
-                    self.open_connection(ip, port)
-                except ConnectionRefusedError:
-                    pass
 
 
 if __name__ == '__main__':
@@ -56,11 +22,12 @@ if __name__ == '__main__':
     host_ = args.host if args.host else HOST
     port_ = args.port if args.port else PORT
 
-    server = Server(name_, host_, port_, _debug=args.debug)
-    server = MicrophoneDecorator(server)
-    server = MonitorDecorator(server)
+    server = Client(name_, host_, port_, _debug=args.debug)
+    server = TimeModule(server)
+    server = MonitorModule(server)
+    server = MicrophoneModule(server)
     try:
-        server.start(None)
+        server.start()
 
     except KeyboardInterrupt as interrupt:
         print()

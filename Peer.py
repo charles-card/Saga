@@ -2,13 +2,13 @@
 import sys
 import threading
 import time
-
 from CommunicationProtocols import CommunicationProtocol
 import socket
 from typing import Callable
+from abc import ABC, abstractmethod
 
 
-class Peer(object):
+class Peer(ABC):
     name: str = None
     host: str = None
     port: int = None
@@ -20,106 +20,58 @@ class Peer(object):
     comm: CommunicationProtocol = None
     running: bool = False
     connections: dict = {}
+    known_peers: dict = {}  # peer_name: (ip, port)
 
+    @abstractmethod
     def send_message(self, name: str, msg: str):
         pass
 
+    @abstractmethod
     def process_message(self, name: str, message: str, handled: bool):
         pass
 
+    @abstractmethod
     def open_connection(self, ip: str, port: int):
         pass
 
-    def connection_listener(self, comm: CommunicationProtocol):
+    @abstractmethod
+    def start(self):
         pass
 
-    def incoming_connection_listener(self):
-        pass
-
-    def start(self, message_handler):
-        pass
-
+    @abstractmethod
     def stop(self):
         pass
 
+    @abstractmethod
     def close_connection(self):
         pass
 
-    def is_connected_to_peer(self, name: str):
-        pass
+    def get_message_handler(self) -> Callable:
+        return self.message_handler
 
+    def set_message_handler(self, message_handler: Callable):
+        self.message_handler = message_handler
 
-class PeerDecorator(Peer):
-    _peer: Peer = None
+    def is_connected_to_peer(self, name: str) -> bool:
+        """
+        Gets connection status to the peer.
 
-    def __init__(self, peer: Peer):
-        self._peer = peer
+        :param name: Name of the peer to check the connection status to.
+        :return: True if connection to the peer is open; False otherwise.
+        """
+        connected = False
+        if name in self.connections.keys():
+            connected = self.connections[name].is_open()
+        return connected
 
-    def peer(self) -> Peer:
-        return self._peer
+    def is_running(self) -> bool:
+        return self.running
 
-    def send_message(self, name: str, msg: str):
-        self._peer.send_message(name, msg)
+    def get_name(self) -> str:
+        return self.name
 
-    def process_message(self, name: str, message: str, handled: bool):
-        self._peer.process_message(name, message, handled)
-
-    def open_connection(self, ip: str, port: int):
-        self._peer.open_connection(ip, port)
-
-    def connection_listener(self, comm: CommunicationProtocol):
-        self._peer.connection_listener(comm)
-
-    def incoming_connection_listener(self):
-        self._peer.incoming_connection_listener()
-
-    def start(self, message_handler):
-        self._peer.start(message_handler)
-
-    def stop(self):
-        self._peer.stop()
-
-    def close_connection(self):
-        self._peer.close_connection()
-
-    def is_connected_to_peer(self, name: str):
-        self._peer.is_connected_to_peer(name)
-
-
-class MicrophoneDecorator(PeerDecorator):
-
-    def process_message(self, name: str, message: str, handled: bool):
-        self._peer.process_message(name, message, handled)
-
-    def start(self, message_handler):
-        if not message_handler:
-            message_handler = self.process_message
-        self._peer.start(message_handler)
-
-
-class MonitorDecorator(PeerDecorator):
-
-    def process_message(self, name: str, message: str, handled: bool):
-        prefix = 'MONITORCAMERA'
-        if not handled and message.startswith(prefix):
-            handled = True
-            args = message.split('-')
-            match args[1]:
-                case '123':
-                    self.send_message(name, 'zxcvbn1')
-                case '456':
-                    self.send_message(name, 'zxcvbn2')
-                case '789':
-                    self.send_message(name, 'zxcvbn3')
-                case _:
-                    handled = False
-
-        self._peer.process_message(name, message, handled)
-
-    def start(self, message_handler):
-        if not message_handler:
-            message_handler = self.process_message
-        self._peer.start(message_handler)
+    def is_debug(self) -> bool:
+        return self._debug
 
 
 class Client(Peer):
@@ -145,6 +97,12 @@ class Client(Peer):
         :param name: Name of peer to send message to.
         :param msg: Message to be sent to the peer.
         """
+        if name not in self.connections.keys():
+            if name in self.known_peers.keys():
+                self.open_connection(self.known_peers[name][0], self.known_peers[name][1])
+            elif self._debug:
+                print('UNKNOWN name {0}'.format(name))
+
         if name in self.connections.keys():
             self.connections[name].send_message(msg)
         else:
@@ -158,6 +116,23 @@ class Client(Peer):
         :param message: Message received from peer.
         :param handled: True if the message has been handled; False otherwise.
         """
+        prefix = 'BUILTIN'
+        if not handled and message.startswith(prefix):
+            handled = True
+            args = message.split('-')
+            match args[1]:
+                case 'PEERLIST':
+                    if args[2] == 'REQ':
+                        self.send_message(name, self.create_known_peer_list())
+                    elif args[2] == 'UPD':
+                        peers = args[3].split('>')
+                        try:
+                            for peer in peers:
+                                peer_ = peer.split('@')
+                                self.add_peer(peer_[0], peer_[1], int(peer_[2]))
+                        except Exception as e:
+                            if self._debug:
+                                print(e)
 
         if self._debug:
             if handled:
@@ -172,20 +147,29 @@ class Client(Peer):
         :param ip: IP address to open a connection to.
         :param port: Port to open a connection on.
         """
-        try:
-            new_socket = socket.socket()
-            new_socket.connect((ip, port))
-            comm = CommunicationProtocol(new_socket, (ip, port), self.name, _debug=self._debug)
-            comm.establish_encrypted_connection_cs()
-            self.connections[comm.get_peer_name()] = comm
+        peers = self.connections.copy()
+        already_connected = False
+        for name in peers.keys():
+            if peers[name] == (ip, port):
+                already_connected = True
 
-            thread = threading.Thread(target=self.connection_listener, args=(comm,))
-            #  thread.daemon = True
-            thread.start()
-        except ConnectionRefusedError as e:
-            if self._debug:
-                print('[FAILED] Unable to connect to \'{0}:{1}\''.format(ip, port))
-            raise ConnectionRefusedError(e)
+        if not already_connected:
+            try:
+                new_socket = socket.socket()
+                new_socket.connect((ip, port))
+                comm = CommunicationProtocol(new_socket, (ip, port), self.name, _debug=self._debug)
+                comm.establish_encrypted_connection_cs()
+                self.connections[comm.get_peer_name()] = comm
+
+                thread = threading.Thread(target=self.connection_listener, args=(comm,))
+                #  thread.daemon = True
+                thread.start()
+
+                self.add_peer(comm.get_peer_name(), ip, port)
+
+            except ConnectionRefusedError as e:
+                if self._debug:
+                    print('[FAILED] Unable to connect to \'{0}:{1}\''.format(ip, port))
 
     def connection_listener(self, comm: CommunicationProtocol):
         """
@@ -242,16 +226,14 @@ class Client(Peer):
             except Exception as e:
                 print(str(e))
 
-    def start(self, message_handler):
+    def start(self):
         """
         Starts a thread to listen to all new incoming connections.
         """
-        self.message_handler = message_handler
         self.running = True
-
-        thread = threading.Thread(target=self.incoming_connection_listener)
-        #  thread.daemon = True
+        thread = threading.Thread(target=self.request_known_peers)
         thread.start()
+        self.incoming_connection_listener()
 
     def stop(self):
         """
@@ -272,18 +254,37 @@ class Client(Peer):
         """
         self.comm.close_connection()
 
-    def is_connected_to_peer(self, name: str):
-        """
-        Gets connection status to the peer.
+    def add_peer(self, peer_name: str, ip: str, port: int):
+        known_peers = self.known_peers.copy()
+        if peer_name in known_peers.keys():
+            if self.known_peers[peer_name] == (ip, port):
+                if self._debug:
+                    print('[ADD_PEER] PEER [{0}@{1}:{2}] KNOWN'.format(peer_name, ip, port))
+            else:
+                self.known_peers[peer_name] = (ip, port)
+                if self._debug:
+                    print('[ADD_PEER] PEER [{0}@{1}:{2}] UPDATED'.format(peer_name, ip, port))
+        else:
+            self.known_peers[peer_name] = (ip, port)
+            if self._debug:
+                print('[ADD_PEER] PEER [{0}@{1}:{2}] ADDED'.format(peer_name, ip, port))
 
-        :param name: Name of the peer to check the connection status to.
-        :return: True if connection to the peer is open; False otherwise.
-        """
-        connected = False
-        if name in self.connections.keys():
-            connected = self.connections[name].is_open()
+    def request_known_peers(self):
+        while not self.running:
+            pass
 
-        return connected
+        peers = self.known_peers.copy()
+        for peer in peers.keys():
+            self.send_message(peer, 'BUILTIN-PEERLIST-REQ')
+
+    def create_known_peer_list(self) -> str:
+        known_peers = self.known_peers.copy()
+        peer_str = 'BUILTIN-PEERLIST-UPD-'
+        for peer_name in known_peers.keys():
+            peer_str += '{0}@{1}@{2}>'.format(peer_name, *known_peers[peer_name])
+        peer_str = peer_str[:len(peer_str) - 1]
+        return peer_str
+
 
 
 
